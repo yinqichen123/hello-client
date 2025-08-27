@@ -13,84 +13,95 @@ import java.util.Properties;
 public class HelloClient {
 
     public static void main(String[] args) {
-        // Show usage if no args or invalid args
-        if (args.length == 0 || (!args[0].equals("list") && !args[0].equals("post"))) {
+
+        // Check if we have the right arguments
+        if (args.length == 0) {
             System.out.println("Usage: java -jar helloClient.jar list");
             System.out.println("Usage: java -jar helloClient.jar post <message>");
             return;
         }
 
-        if (args[0].equals("post") && args.length != 2) {
-            System.out.println("Usage: java -jar helloClient.jar post <message>");
-            return;
-        }
-
-        // Load config
-        Properties props = new Properties();
+        // Load the config file
+        Properties config = new Properties();
+        String configFile = System.getProperty("user.home") + "/.config/cmpe172hello.properties";
         try {
-            String configPath = System.getProperty("user.home") + "/.config/cmpe172hello.properties";
-            props.load(new FileInputStream(configPath));
+            config.load(new FileInputStream(configFile));
         } catch (Exception e) {
-            System.err.println("Could not read config file: " + e.getMessage());
+            System.out.println("Cannot read config file: " + e.getMessage());
             return;
         }
 
-        String baseUrl = props.getProperty("baseUrl");
-        String token = props.getProperty("token");
-        String author = props.getProperty("author");
+        String baseUrl = config.getProperty("baseUrl");
+        String token = config.getProperty("token");
+        String author = config.getProperty("author");
 
         RestTemplate restTemplate = new RestTemplate();
 
-        try {
-            if (args[0].equals("list")) {
-                listMessages(restTemplate, baseUrl);
-            } else {
-                postMessage(restTemplate, baseUrl, token, author, args[1]);
+        // Handle list command
+        if (args[0].equals("list")) {
+            try {
+                int page = 0;
+                while (true) {
+                    String url = baseUrl + "/posts?page=" + page;
+                    Map response = restTemplate.getForObject(url, Map.class);
+
+                    List<Map> messages = (List<Map>) response.get("content");
+                    for (Map message : messages) {
+                        Long id = Long.valueOf(message.get("id").toString());
+                        String text = (String) message.get("message");
+                        String messageAuthor = (String) message.get("author");
+
+                        ZoneId zone = ZoneId.systemDefault();
+                        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                        var zdt = Instant.ofEpochMilli(id).atZone(zone);
+                        System.out.printf("%s %s said %s%n", zdt.format(dtf), messageAuthor, text);
+                    }
+
+                    Boolean isLast = (Boolean) response.get("last");
+                    if (isLast) {
+                        break;
+                    }
+                    page++;
+                }
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
             }
-        } catch (Exception e) {
-            System.err.println(e.getMessage());
         }
-    }
 
-    private static void listMessages(RestTemplate restTemplate, String baseUrl) {
-        ZoneId zone = ZoneId.systemDefault();
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        // Handle post command
+        else if (args[0].equals("post")) {
+            if (args.length < 2) {
+                System.out.println("Usage: java -jar helloClient.jar post <message>");
+                return;
+            }
 
-        int page = 0;
-        while (true) {
-            Map<String, Object> response = restTemplate.getForObject(baseUrl + "/posts?page=" + page, Map.class);
-            List<Map<String, Object>> content = (List<Map<String, Object>>) response.get("content");
+            try {
+                String url = baseUrl + "/posts";
+                Map<String, String> requestBody = new HashMap<>();
+                requestBody.put("author", author);
+                requestBody.put("message", args[1]);
+                requestBody.put("token", token);
 
-            for (Map<String, Object> message : content) {
-                Long id = ((Number) message.get("id")).longValue();
+                Map response = restTemplate.postForObject(url, requestBody, Map.class);
+
+                Long id = Long.valueOf(response.get("id").toString());
+                String text = (String) response.get("message");
+                String responseAuthor = (String) response.get("author");
+
+                ZoneId zone = ZoneId.systemDefault();
+                DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
                 var zdt = Instant.ofEpochMilli(id).atZone(zone);
-                System.out.printf("%s %s said %s%n",
-                        zdt.format(dtf),
-                        message.get("author"),
-                        message.get("message"));
+                System.out.printf("%s %s said %s%n", zdt.format(dtf), responseAuthor, text);
+
+            } catch (Exception e) {
+                System.out.println(e.getMessage());
             }
-
-            if ((Boolean) response.get("last")) break;
-            page++;
         }
-    }
 
-    private static void postMessage(RestTemplate restTemplate, String baseUrl, String token, String author, String message) {
-        ZoneId zone = ZoneId.systemDefault();
-        DateTimeFormatter dtf = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-        Map<String, String> requestBody = new HashMap<>();
-        requestBody.put("author", author);
-        requestBody.put("message", message);
-        requestBody.put("token", token);
-
-        Map<String, Object> response = restTemplate.postForObject(baseUrl + "/posts", requestBody, Map.class);
-
-        Long id = ((Number) response.get("id")).longValue();
-        var zdt = Instant.ofEpochMilli(id).atZone(zone);
-        System.out.printf("%s %s said %s%n",
-                zdt.format(dtf),
-                response.get("author"),
-                response.get("message"));
+        // Handle invalid command
+        else {
+            System.out.println("Usage: java -jar helloClient.jar list");
+            System.out.println("Usage: java -jar helloClient.jar post <message>");
+        }
     }
 }
